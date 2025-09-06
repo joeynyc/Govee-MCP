@@ -1,8 +1,8 @@
 # Govee MCP Server (TypeScript)
 
-🏠 **Control your Govee smart lights from Claude Code using natural language!**
+🏠 **Control your Govee smart lights from any MCP-compatible client using natural language!**
 
-A secure, production-ready MCP (Model Context Protocol) server that enables Claude to control your Govee lights through natural language commands. Built with TypeScript and includes comprehensive safety features.
+A secure, production-ready MCP (Model Context Protocol) server that enables AI assistants to control your Govee lights through natural language commands. Compatible with Claude Desktop, Claude Code, and any future MCP clients. Built with TypeScript and includes comprehensive safety features.
 
 ## ✨ Features
 
@@ -34,12 +34,36 @@ npm run build
 npm start  # Test locally first
 ```
 
-### 4. Add to Claude Code
+### 4. Add to MCP Client
+
+#### Claude Code (CLI)
 ```bash
 claude mcp add govee node dist/server.js \
   -e "GOVEE_API_KEY=your-api-key-here" \
   -e "GOVEE_ALLOWLIST=your-device-ids"
 ```
+
+#### Claude Desktop
+1. Open Claude Desktop settings
+2. Go to **MCP** tab
+3. Add server configuration:
+   ```json
+   {
+     "name": "govee",
+     "command": "node",
+     "args": ["path/to/dist/server.js"],
+     "env": {
+       "GOVEE_API_KEY": "your-api-key-here",
+       "GOVEE_ALLOWLIST": "your-device-ids"
+     }
+   }
+   ```
+
+#### Other MCP Clients
+Follow your client's MCP server configuration process using:
+- **Command**: `node dist/server.js`
+- **Protocol**: `stdio`
+- **Environment**: `GOVEE_API_KEY` and optional `GOVEE_ALLOWLIST`
 
 ## 🔒 Security Configuration
 
@@ -53,7 +77,7 @@ GOVEE_ALLOWLIST=CB:74:D1:35:33:33:02:47,21:70:DD:6E:03:46:5F:74
 
 **Find your device IDs:**
 1. Run the server with empty allowlist initially
-2. Use Claude: "List my Govee devices"
+2. Ask your MCP client: "List my Govee devices"
 3. Copy the device IDs you want to control
 4. Add them to `GOVEE_ALLOWLIST` and restart
 
@@ -65,7 +89,7 @@ GOVEE_ALLOWLIST=CB:74:D1:35:33:33:02:47,21:70:DD:6E:03:46:5F:74
 
 ## 🎮 Usage Examples
 
-Once configured, use natural language with Claude:
+Once configured, use natural language with any MCP client:
 
 ```
 "Turn on the living room lights"
@@ -156,11 +180,27 @@ curl -X POST localhost:3000 -d '{"method": "govee.list_devices"}'
 
 MIT License - see LICENSE file for details.
 
+## 🌐 MCP Ecosystem
+
+This server is built on the **Model Context Protocol (MCP)**, an open standard for connecting AI assistants to external tools and data sources.
+
+### Compatible MCP Clients
+- **Claude Desktop** - Anthropic's desktop application
+- **Claude Code** - CLI and VS Code integration
+- **Custom MCP clients** - Any application implementing the MCP protocol
+
+### MCP Benefits
+- **Universal compatibility** - Works with current and future MCP clients
+- **Standardized interface** - Consistent tool definitions across clients  
+- **Future-proof** - Benefits from growing MCP ecosystem
+- **Open source** - Built on open standards
+
 ## 🙏 Acknowledgments
 
 - Built on the [Model Context Protocol](https://modelcontextprotocol.io/) by Anthropic
 - Uses the [Govee Developer API](https://developer.govee.com/)
 - TypeScript validation powered by [Zod](https://zod.dev/)
+- Compatible with all MCP-compliant AI assistants
 
 ---
 

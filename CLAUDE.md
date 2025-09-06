@@ -1,10 +1,12 @@
 # Claude Code Development Guide - Govee MCP Server
 
-This file contains essential information for working with the Govee MCP Server project in Claude Code.
+This file contains essential information for developing and using the Govee MCP Server specifically with Claude Code. 
+
+**Note**: While this MCP server works with any MCP-compatible client (Claude Desktop, custom clients, etc.), this guide focuses on Claude Code-specific workflows and commands.
 
 ## 📋 Project Overview
 
-**Govee MCP Server** - A secure TypeScript MCP server for controlling Govee smart lights through natural language in Claude Code.
+**Govee MCP Server** - A secure TypeScript MCP server for controlling Govee smart lights through natural language. Compatible with all MCP clients including Claude Desktop, Claude Code, and custom implementations.
 
 - **Repository**: https://github.com/joeynyc/Govee-MCP.git
 - **Language**: TypeScript
