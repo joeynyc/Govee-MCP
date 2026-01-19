@@ -2,21 +2,37 @@
   "name": "govee-mcp-server",
   "version": "0.1.0",
   "description": "Secure MCP server for controlling Govee smart lights via natural language. Compatible with Claude Desktop, Claude Code, and all MCP clients.",
-  "keywords": ["mcp", "govee", "smart-lights", "home-automation", "claude", "typescript", "iot"],
+  "keywords": [
+    "mcp",
+    "govee",
+    "smart-lights",
+    "home-automation",
+    "claude",
+    "typescript",
+    "iot"
+  ],
   "type": "module",
   "private": false,
   "scripts": {
     "build": "tsc -p .",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.5",
+    "pino": "^10.2.0",
     "undici": "^6.19.8",
+    "uuid": "^13.0.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/node": "^24.3.1",
-    "typescript": "^5.6.3"
+    "@types/node": "^24.10.9",
+    "@types/uuid": "^10.0.0",
+    "pino-pretty": "^13.1.3",
+    "typescript": "^5.6.3",
+    "vitest": "^4.0.17"
   },
   "repository": {
     "type": "git",

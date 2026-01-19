@@ -3,8 +3,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { CloudAdapter } from "./adapters/cloud.js";
 import { LanAdapter } from "./adapters/lan.js";
-import { BatchItem, ControlCmd, DeviceInfo } from "./util/types.js";
+import { BatchItem, ControlCmd } from "./util/types.js";
 import { TokenBucketLimiter } from "./util/limiter.js";
+import { logger } from "./util/logger.js";
 
 const allowlistEnv = (process.env.GOVEE_ALLOWLIST || "")
   .split(/[,\s]+/)
@@ -18,14 +19,17 @@ const BATCH_WINDOW_MS = Number(process.env.GOVEE_BATCH_WINDOW_MS || 120);
 const cloud = new CloudAdapter();
 const lan = new LanAdapter();
 
+// Wire up LAN to fallback to cloud
+lan.setFallback(cloud);
+
 function isAllowed(deviceId: string) {
   return ALLOWLIST.size === 0 || ALLOWLIST.has(deviceId);
 }
 
-async function pickAdapter(deviceId: string) {
-  // Prefer LAN for devices we later mark as online here; fallback to cloud.
-  // For now, we just return cloud unless LAN is globally enabled and you extend discovery.
-  return lan.lanEnabled ? lan : cloud;
+function pickAdapter(): LanAdapter {
+  // Always return LAN adapter - it will fallback to cloud internally
+  // This simplifies the logic and centralizes fallback handling
+  return lan;
 }
 
 const server = new McpServer({ name: "govee-mcp", version: "0.1.0" });
@@ -52,7 +56,7 @@ server.registerTool("govee_get_state", {
 }, async ({ deviceId, model }) => {
   if (!isAllowed(deviceId)) throw new Error("Device not allowed");
   await limiter.take();
-  const ad = await pickAdapter(deviceId);
+  const ad = pickAdapter();
   const state = await ad.getState({ deviceId, model });
   return { content: [{ type: "text", text: JSON.stringify(state, null, 2) }] };
 });
@@ -63,7 +67,7 @@ server.registerTool("govee_set_power", {
 }, async ({ deviceId, model, on }) => {
   if (!isAllowed(deviceId)) throw new Error("Device not allowed");
   await limiter.take();
-  const ad = await pickAdapter(deviceId);
+  const ad = pickAdapter();
   await ad.control({ deviceId, model }, { name: "turn", value: on ? "on" : "off" });
   return { content: [{ type: "text", text: `Power ${on ? "on" : "off"} sent.` }] };
 });
@@ -74,7 +78,7 @@ server.registerTool("govee_set_brightness", {
 }, async ({ deviceId, model, percent }) => {
   if (!isAllowed(deviceId)) throw new Error("Device not allowed");
   await limiter.take();
-  const ad = await pickAdapter(deviceId);
+  const ad = pickAdapter();
   await ad.control({ deviceId, model }, { name: "brightness", value: Math.round(percent) });
   return { content: [{ type: "text", text: `Brightness set to ${Math.round(percent)}%.` }] };
 });
@@ -91,7 +95,7 @@ server.registerTool("govee_set_color", {
 }, async ({ deviceId, model, r, g, b }) => {
   if (!isAllowed(deviceId)) throw new Error("Device not allowed");
   await limiter.take();
-  const ad = await pickAdapter(deviceId);
+  const ad = pickAdapter();
   await ad.control({ deviceId, model }, { name: "color", value: { r, g, b } });
   return { content: [{ type: "text", text: `Color set to rgb(${r},${g},${b}).` }] };
 });
@@ -102,7 +106,7 @@ server.registerTool("govee_set_color_temp", {
 }, async ({ deviceId, model, kelvin }) => {
   if (!isAllowed(deviceId)) throw new Error("Device not allowed");
   await limiter.take();
-  const ad = await pickAdapter(deviceId);
+  const ad = pickAdapter();
   await ad.control({ deviceId, model }, { name: "colorTem", value: Math.round(kelvin) });
   return { content: [{ type: "text", text: `Color temp set to ${Math.round(kelvin)}K.` }] };
 });
@@ -113,7 +117,7 @@ server.registerTool("govee_set_scene", {
 }, async ({ deviceId, model, scene }) => {
   if (!isAllowed(deviceId)) throw new Error("Device not allowed");
   await limiter.take();
-  const ad = await pickAdapter(deviceId);
+  const ad = pickAdapter();
   await ad.control({ deviceId, model }, { name: "scene", value: scene });
   return { content: [{ type: "text", text: `Scene set to ${scene}.` }] };
 });
@@ -159,7 +163,7 @@ server.registerTool("govee_batch", {
   for (const [deviceId, cmds] of byDevice) {
     promises.push(
       (async () => {
-        const ad = await pickAdapter(deviceId);
+        const ad = pickAdapter();
         // small window delay to allow further coalescing if caller streams actions
         await new Promise((r) => setTimeout(r, BATCH_WINDOW_MS));
         for (const it of cmds) await ad.control({ deviceId: it.deviceId, model: it.model }, it.cmd as ControlCmd);
@@ -174,10 +178,10 @@ server.registerTool("govee_batch", {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("govee-mcp server running (stdio)");
+  logger.info("govee-mcp server running (stdio)");
 }
 
 main().catch((e) => {
-  console.error(e);
+  logger.error({ err: e }, "Server failed to start");
   process.exit(1);
 });

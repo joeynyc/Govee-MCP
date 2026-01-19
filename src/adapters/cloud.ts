@@ -1,61 +1,101 @@
 import { fetch } from "undici";
-import { BatchItem, ControlCmd, DeviceInfo, DeviceRef, State } from "../util/types.js";
+import { v4 as uuidv4 } from "uuid";
+import { BatchItem, ControlCmd, DeviceInfo, DeviceRef, State, GoveeApiError } from "../util/types.js";
+import { createChildLogger } from "../util/logger.js";
+import { withRetry } from "../util/retry.js";
+import type { GoveeAdapter } from "./types.js";
 
-const API_BASE = process.env.GOVEE_API_BASE || "https://openapi.api.govee.com/router/api/v1";
-const API_KEY = process.env.GOVEE_API_KEY || "";
-const DRY_RUN = /^true$/i.test(process.env.GOVEE_DRY_RUN || "false");
+const log = createChildLogger({ module: "cloud-adapter" });
+
+function getConfig() {
+  return {
+    apiBase: process.env.GOVEE_API_BASE || "https://openapi.api.govee.com/router/api/v1",
+    apiKey: process.env.GOVEE_API_KEY || "",
+    dryRun: /^true$/i.test(process.env.GOVEE_DRY_RUN || "false"),
+  };
+}
 
 function headers() {
+  const { apiKey } = getConfig();
   return {
     "Content-Type": "application/json",
-    "Govee-API-Key": API_KEY,
+    "Govee-API-Key": apiKey,
   } as Record<string, string>;
 }
 
-async function post<T>(path: string, payload: any = {}): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify(payload ?? {}),
+async function post<T>(path: string, payload: Record<string, unknown> = {}): Promise<T> {
+  const { apiBase } = getConfig();
+  const requestId = (payload.requestId as string) || uuidv4();
+  const reqLog = log.child({ requestId, path, method: "POST" });
+
+  return withRetry(async () => {
+    reqLog.debug({ payload }, "Sending POST request");
+
+    const res = await fetch(`${apiBase}${path}`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(payload ?? {}),
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      reqLog.error({ status: res.status, errorText }, "API request failed");
+      throw new GoveeApiError(`Govee API error ${res.status}: Request failed`, res.status);
+    }
+
+    const data = await res.json() as T;
+    reqLog.debug({ status: res.status }, "POST request successful");
+    return data;
   });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Govee API error ${res.status}: Request failed`);
-  }
-  return res.json() as Promise<T>;
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "GET",
-    headers: { "Govee-API-Key": API_KEY },
+  const { apiBase, apiKey } = getConfig();
+  const requestId = uuidv4();
+  const reqLog = log.child({ requestId, path, method: "GET" });
+
+  return withRetry(async () => {
+    reqLog.debug("Sending GET request");
+
+    const res = await fetch(`${apiBase}${path}`, {
+      method: "GET",
+      headers: { "Govee-API-Key": apiKey },
+    });
+
+    if (!res.ok) {
+      reqLog.error({ status: res.status }, "API request failed");
+      throw new GoveeApiError(`Govee API error ${res.status}: Request failed`, res.status);
+    }
+
+    const data = await res.json() as T;
+    reqLog.debug({ status: res.status }, "GET request successful");
+    return data;
   });
-  if (!res.ok) {
-    throw new Error(`Govee API error ${res.status}: Request failed`);
-  }
-  return res.json() as Promise<T>;
 }
 
-export class CloudAdapter {
+export class CloudAdapter implements GoveeAdapter {
   async listDevices(): Promise<DeviceInfo[]> {
-    type Resp = { data?: any[] };
+    log.info("Listing devices");
+    type Resp = { data?: Array<{ device: string; sku: string; deviceName: string; capabilities?: Array<{ type: string }> }> };
     const out = await get<Resp>("/user/devices");
     const devices = out?.data ?? [];
-    return devices.map((d) => ({
+    const result = devices.map((d) => ({
       deviceId: d.device,
       model: d.sku,
       name: d.deviceName,
-      capabilities: (d.capabilities || []).map((c: any) => c.type),
+      capabilities: (d.capabilities || []).map((c) => c.type),
     }));
+    log.info({ count: result.length }, "Devices listed successfully");
+    return result;
   }
 
   async getState(ref: DeviceRef): Promise<State> {
-    type Resp = { data?: any };
+    log.info({ deviceId: ref.deviceId, model: ref.model }, "Getting device state");
+    type Resp = { data?: { capabilities?: Array<{ type: string; instance?: string; state?: { value: unknown } }> } };
     const out = await post<Resp>("/device/state", {
-      requestId: "mcp-state",
+      requestId: uuidv4(),
       payload: { sku: ref.model, device: ref.deviceId }
     });
-    // Parse new API response format
     const caps = out?.data?.capabilities || [];
     const st: State = {};
     for (const c of caps) {
@@ -77,17 +117,20 @@ export class CloudAdapter {
         st.colorTem = Number(c.state?.value);
       }
     }
+    log.debug({ deviceId: ref.deviceId, state: st }, "Device state retrieved");
     return st;
   }
 
   async control(ref: DeviceRef, cmd: ControlCmd): Promise<void> {
-    if (DRY_RUN) {
-      console.log("[DRY-RUN] control", { ref, cmd });
+    const { dryRun } = getConfig();
+    if (dryRun) {
+      log.info({ ref, cmd }, "[DRY-RUN] control");
       return;
     }
-    
-    // Convert old command format to new capability format
-    let capability: any;
+
+    log.info({ deviceId: ref.deviceId, model: ref.model, command: cmd.name }, "Sending control command");
+
+    let capability: { type: string; instance: string; value: unknown };
     switch (cmd.name) {
       case "turn":
         capability = {
@@ -103,7 +146,7 @@ export class CloudAdapter {
           value: cmd.value
         };
         break;
-      case "color":
+      case "color": {
         const rgb = (cmd.value.r << 16) | (cmd.value.g << 8) | cmd.value.b;
         capability = {
           type: "devices.capabilities.color_setting",
@@ -111,6 +154,7 @@ export class CloudAdapter {
           value: rgb
         };
         break;
+      }
       case "colorTem":
         capability = {
           type: "devices.capabilities.color_setting",
@@ -126,28 +170,33 @@ export class CloudAdapter {
         };
         break;
       default:
-        throw new Error(`Unsupported command: ${(cmd as any).name}`);
+        throw new Error(`Unsupported command: ${(cmd as { name: string }).name}`);
     }
 
     await post("/device/control", {
-      requestId: `mcp-${Date.now()}`,
+      requestId: uuidv4(),
       payload: {
         sku: ref.model,
         device: ref.deviceId,
         capability
       }
     });
+
+    log.debug({ deviceId: ref.deviceId, command: cmd.name }, "Control command sent successfully");
   }
 
   async batch(items: BatchItem[]): Promise<void> {
-    if (DRY_RUN) {
-      console.log("[DRY-RUN] batch", items);
+    const { dryRun } = getConfig();
+    if (dryRun) {
+      log.info({ items }, "[DRY-RUN] batch");
       return;
     }
-    // Cloud API doesn't have a native batch endpoint → just sequence with minimal delay.
+
+    log.info({ count: items.length }, "Executing batch commands");
     for (const it of items) {
       await this.control({ deviceId: it.deviceId, model: it.model }, it.cmd);
-      await new Promise((r) => setTimeout(r, 60)); // space out a bit
+      await new Promise((r) => setTimeout(r, 60));
     }
+    log.debug({ count: items.length }, "Batch commands completed");
   }
 }
