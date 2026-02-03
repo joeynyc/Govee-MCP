@@ -41,10 +41,11 @@ export function usePowerMutation() {
       if (context?.previous) {
         queryClient.setQueryData(["devices"], context.previous);
       }
-    },
-    onSettled: () => {
+      // Only refetch on error to get actual state
       queryClient.invalidateQueries({ queryKey: ["devices"] });
     },
+    // Don't refetch on success - Govee API has delay before state updates
+    // The optimistic update already shows the correct state
   });
 }
 
@@ -79,8 +80,6 @@ export function useBrightnessMutation() {
       if (context?.previous) {
         queryClient.setQueryData(["devices"], context.previous);
       }
-    },
-    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["devices"] });
     },
   });
@@ -115,8 +114,6 @@ export function useColorMutation() {
       if (context?.previous) {
         queryClient.setQueryData(["devices"], context.previous);
       }
-    },
-    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["devices"] });
     },
   });
@@ -153,8 +150,6 @@ export function useColorTempMutation() {
       if (context?.previous) {
         queryClient.setQueryData(["devices"], context.previous);
       }
-    },
-    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["devices"] });
     },
   });
