@@ -1,13 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { CloudAdapter } from "../../src/adapters/cloud.js";
 
 const mockFetch = vi.fn();
-
-vi.mock("undici", () => ({
-  fetch: mockFetch,
-}));
-
-// Import after mock is set up
-const { CloudAdapter } = await import("../../src/adapters/cloud.js");
+vi.stubGlobal("fetch", mockFetch);
 
 describe("CloudAdapter", () => {
   let adapter: InstanceType<typeof CloudAdapter>;

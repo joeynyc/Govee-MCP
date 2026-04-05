@@ -4,16 +4,18 @@ This file contains essential information for developing and using the Govee MCP 
 
 **Note**: While this MCP server works with any MCP-compatible client (Claude Desktop, custom clients, etc.), this guide focuses on Claude Code-specific workflows and commands.
 
-## 📋 Project Overview
+## Project Overview
 
 **Govee MCP Server** - A secure TypeScript MCP server for controlling Govee smart lights through natural language. Compatible with all MCP clients including Claude Desktop, Claude Code, and custom implementations.
 
 - **Repository**: https://github.com/joeynyc/Govee-MCP.git
-- **Language**: TypeScript
-- **Runtime**: Node.js
+- **Language**: TypeScript 6
+- **Runtime**: Node.js 20+
 - **Architecture**: MCP (Model Context Protocol) server with adapter pattern
+- **MCP SDK**: @modelcontextprotocol/sdk 1.29+
+- **Validation**: Zod 4
 
-## 🚀 Quick Development Commands
+## Quick Development Commands
 
 ### Setup & Build
 ```bash
@@ -22,12 +24,19 @@ npm run build           # Build TypeScript to dist/
 npm start              # Run the MCP server
 ```
 
-### Testing & Development
+### Testing
 ```bash
-# Test with dry run mode (safe testing)
-GOVEE_DRY_RUN=true npm start
+npm test               # Run all tests (vitest)
+npm run test:watch     # Watch mode
+npm run test:coverage  # With coverage report
 
-# Test MCP server health
+# Test with dry run mode (safe, no real API calls)
+GOVEE_DRY_RUN=true npm start
+```
+
+### MCP Server Management
+```bash
+# Check server status
 claude mcp list
 
 # Remove and re-add MCP server during development
@@ -35,20 +44,15 @@ claude mcp remove govee
 claude mcp add govee node dist/server.js -e "GOVEE_API_KEY=your-key"
 ```
 
-### Git Operations
-```bash
-git add .
-git commit -m "feat: your feature description"
-git push origin main
-```
-
-## 🔧 Key Configuration
+## Key Configuration
 
 ### Environment Variables (.env)
 - `GOVEE_API_KEY` - **REQUIRED** Your Govee API key
 - `GOVEE_ALLOWLIST` - **SECURITY** Comma-separated device IDs (recommended)
 - `GOVEE_DRY_RUN` - Set to `true` for safe testing
 - `GOVEE_RATE_RPS` - API rate limit (default: 5)
+- `GOVEE_BATCH_WINDOW_MS` - Command coalescing window (default: 120)
+- `GOVEE_LAN_ENABLED` - Enable LAN adapter stub (default: false)
 
 ### Device IDs (for allowlist)
 Current known devices:
@@ -57,17 +61,17 @@ Current known devices:
 - Left Outdoor Spotlight: `12:1E:DD:6E:04:46:69:43` (H7093)
 - Basic Group Control: `12349045` (BaseGroup)
 
-## 🛠️ MCP Tools Available
+## MCP Tools Available
 
-1. **`govee.list_devices`** - List all Govee devices
-2. **`govee.get_state`** - Get current device state  
-3. **`govee.set_power`** - Turn devices on/off
-4. **`govee.set_brightness`** - Set brightness (0-100%)
-5. **`govee.set_color`** - Set RGB color (0-255 each)
-6. **`govee.set_color_temp`** - Set color temperature (Kelvin)
-7. **`govee.batch`** - Execute multiple commands
+1. **`govee_list_devices`** - List all Govee devices
+2. **`govee_get_state`** - Get current device state  
+3. **`govee_set_power`** - Turn devices on/off
+4. **`govee_set_brightness`** - Set brightness (0-100%)
+5. **`govee_set_color`** - Set RGB color (0-255 each)
+6. **`govee_set_color_temp`** - Set color temperature (Kelvin)
+7. **`govee_batch`** - Execute multiple commands with coalescing
 
-## 🎯 Natural Language Examples
+## Natural Language Examples
 
 ```
 "List my Govee devices"
@@ -78,24 +82,46 @@ Current known devices:
 "Turn on all outdoor lights"
 ```
 
-## 🏗️ Project Structure
+## Project Structure
 
 ```
 src/
 ├── server.ts           # Main MCP server (7 tools)
 ├── adapters/
-│   ├── cloud.ts       # Govee Cloud API integration  
-│   └── lan.ts         # LAN adapter stub
+│   ├── types.ts       # GoveeAdapter interface
+│   ├── cloud.ts       # Govee Cloud API (uses native fetch)
+│   └── lan.ts         # LAN adapter stub with cloud fallback
 └── util/
-    ├── types.ts       # TypeScript definitions
-    └── limiter.ts     # Rate limiting logic
+    ├── types.ts       # TypeScript type definitions
+    ├── limiter.ts     # Token bucket rate limiting
+    ├── logger.ts      # Pino-based structured logging
+    └── retry.ts       # Retry with exponential backoff
 
-dist/                   # Built JavaScript output
+tests/
+├── adapters/          # Adapter unit tests
+├── server/            # Server integration tests
+└── util/              # Utility unit tests
+
+dashboard/             # Web dashboard (React frontend + Express backend)
+dist/                  # Built JavaScript output
 .env                   # Environment config (gitignored)
 .env.example           # Safe template
 ```
 
-## 🔒 Security Checklist
+## Key Dependencies
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| @modelcontextprotocol/sdk | ^1.29.0 | MCP protocol implementation |
+| zod | ^4.3.6 | Input schema validation |
+| pino | ^10.3.1 | Structured JSON logging |
+| uuid | ^13.0.0 | Request ID generation |
+| typescript | ^6.0.2 | Type checking and compilation |
+| vitest | ^4.1.2 | Test runner |
+
+**Note**: HTTP requests use Node.js built-in `fetch` (no external HTTP client needed with Node 20+).
+
+## Security Checklist
 
 - [ ] API key in environment variables only
 - [ ] Device allowlist configured for production
@@ -104,18 +130,18 @@ dist/                   # Built JavaScript output
 - [ ] Rate limiting enabled
 - [ ] Error messages sanitized
 
-## 🐛 Common Issues & Solutions
+## Common Issues & Solutions
 
 ### "Device not allowed" error
 - Check device ID is in `GOVEE_ALLOWLIST` 
-- Or comment out allowlist to allow all devices
+- Or remove allowlist to allow all devices
 
 ### 401/403 API errors
 - Verify `GOVEE_API_KEY` is correct
 - Check API key is active in Govee Developer Portal
 
 ### Commands not working
-- Check device capabilities with `list_devices`
+- Check device capabilities with `govee_list_devices`
 - Some devices support color OR temperature (not both)
 - Ensure device is powered and online
 
@@ -124,25 +150,26 @@ dist/                   # Built JavaScript output
 - Rebuild after code changes: `npm run build`
 - Re-add server: `claude mcp remove govee && claude mcp add...`
 
-## 🔄 Development Workflow
+## Development Workflow
 
 1. **Make changes** to TypeScript source in `src/`
 2. **Build**: `npm run build` 
-3. **Test locally** with dry run: `GOVEE_DRY_RUN=true npm start`
-4. **Update MCP server**: Remove and re-add to Claude Code
-5. **Test with real devices** (carefully!)
-6. **Commit and push** to GitHub
+3. **Test**: `npm test`
+4. **Test locally** with dry run: `GOVEE_DRY_RUN=true npm start`
+5. **Update MCP server**: Remove and re-add to Claude Code
+6. **Test with real devices** (carefully!)
+7. **Commit and push** to GitHub
 
-## 📚 API Reference
+## API Reference
 
 ### Govee Cloud API
 - **Base URL**: `https://openapi.api.govee.com/router/api/v1`
 - **Auth**: `Govee-API-Key` header
 - **Device List**: `GET /user/devices`
-- **Control**: `POST /device/control` (new capability format)
+- **Control**: `POST /device/control` (capability format)
 - **State**: `POST /device/state`
 
-### New API Format (2024)
+### Capability Format
 ```json
 {
   "requestId": "unique-id",
@@ -158,7 +185,7 @@ dist/                   # Built JavaScript output
 }
 ```
 
-## 🎨 Extending the Server
+## Extending the Server
 
 ### Adding New MCP Tools
 1. Add tool definition in `src/server.ts`
@@ -166,7 +193,8 @@ dist/                   # Built JavaScript output
 3. Add device allowlist check
 4. Implement rate limiting
 5. Add error handling
-6. Update documentation
+6. Add tests
+7. Update documentation
 
 ### Adding Device Types
 1. Update `src/util/types.ts` 
@@ -174,40 +202,28 @@ dist/                   # Built JavaScript output
 3. Add capability mappings
 4. Test with real devices
 
-## 📝 Testing Commands
+## Testing
 
 ```bash
-# Check MCP server status
-claude mcp list
-
-# Test device listing (safe)
-# Use in Claude: "List my Govee devices"
-
-# Test control commands (use dry run first!)
-GOVEE_DRY_RUN=true npm start
-# Then: "Turn off floor lamp" 
+npm test                    # Run all tests
+npm run test:watch          # Watch mode
+npm run test:coverage       # Coverage report
 
 # Direct API testing
 curl -H "Govee-API-Key: your-key" \
   https://openapi.api.govee.com/router/api/v1/user/devices
 ```
 
-## 🚀 Deployment Notes
+## Deployment Notes
 
 - Always use device allowlists in production
 - Set appropriate rate limits for your usage
 - Monitor API usage to avoid hitting Govee limits
-- Consider implementing LAN adapter for faster responses
 - Use environment-specific configurations
-
-## 📞 Support & Contributing
-
-- **Issues**: https://github.com/joeynyc/Govee-MCP/issues
-- **Contributions**: Fork, feature branch, pull request
-- **Security**: Report privately for security issues
 
 ---
 
-**Last Updated**: 2024-12-06
-**Claude Code Version**: Compatible with latest MCP SDK
-**Node.js Version**: 18+ recommended
+**Last Updated**: 2026-04-05
+**Node.js Version**: 20+ required
+**TypeScript Version**: 6.0+
+**MCP SDK Version**: 1.29+

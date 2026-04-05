@@ -1,4 +1,3 @@
-import { fetch } from "undici";
 import { v4 as uuidv4 } from "uuid";
 import { BatchItem, ControlCmd, DeviceInfo, DeviceRef, State, GoveeApiError } from "../util/types.js";
 import { createChildLogger } from "../util/logger.js";
